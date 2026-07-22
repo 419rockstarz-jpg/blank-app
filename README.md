@@ -23,3 +23,13 @@ $ curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
    $ uv run streamlit run streamlit_app.py
    ```
+
+### Deploy publicly
+
+This repository is now set up to be deployed to Streamlit Community Cloud or similar platforms:
+
+- The app entrypoint is the existing Streamlit file.
+- A requirements file is included for hosted installs.
+- A runtime file is included for Python 3.11.
+
+If you push this repository to GitHub, you can deploy it from Streamlit Community Cloud by pointing it at the repo and selecting the app file.
