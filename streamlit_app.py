@@ -6,6 +6,27 @@ from typing import Any
 
 import streamlit as st
 
+
+def build_delivery_record(source: str, business_name: str, contact_name: str = "", address: str = "", note: str | None = None) -> dict[str, Any]:
+    return {
+        "source": source,
+        "businessName": business_name,
+        "contactName": contact_name or "Not provided",
+        "address": address or "Not provided",
+        "status": "Ordered and coming",
+        "deliveryNote": note or f"{source} order for city ledger / business delivery record",
+    }
+
+
+def build_temu_delivery_record() -> dict[str, Any]:
+    return build_delivery_record(
+        "Temu",
+        "Susanna Marie's Creations",
+        "Susanna Marie Cole",
+        "11051B County Road C, Bryan, Ohio",
+        "Temu order for city ledger / business delivery record",
+    )
+
 DB_PATH = Path(__file__).with_name("estate_command_center.db")
 
 
@@ -20,13 +41,16 @@ def ensure_database_schema(db_path: str | Path | None = None) -> Path:
                 property_name TEXT NOT NULL,
                 owner_name TEXT,
                 deed_data TEXT,
-                deed_fingerprint TEXT
+                deed_fingerprint TEXT,
+                utilities_active INTEGER NOT NULL DEFAULT 1
             )
             """
         )
         cols = {row[1] for row in conn.execute("PRAGMA table_info(properties)")}
         if "deed_fingerprint" not in cols:
             conn.execute("ALTER TABLE properties ADD COLUMN deed_fingerprint TEXT")
+        if "utilities_active" not in cols:
+            conn.execute("ALTER TABLE properties ADD COLUMN utilities_active INTEGER NOT NULL DEFAULT 1")
         conn.commit()
     finally:
         conn.close()
@@ -39,8 +63,8 @@ def add_property(db_path: str | Path | None = None, property_name: str = "", own
     try:
         fingerprint = deed_fingerprint or hashlib.sha256((property_name + owner_name + deed_data).encode("utf-8")).hexdigest()
         conn.execute(
-            "INSERT INTO properties (property_name, owner_name, deed_data, deed_fingerprint) VALUES (?, ?, ?, ?)",
-            (property_name, owner_name, deed_data, fingerprint),
+            "INSERT INTO properties (property_name, owner_name, deed_data, deed_fingerprint, utilities_active) VALUES (?, ?, ?, ?, ?)",
+            (property_name, owner_name, deed_data, fingerprint, 1),
         )
         conn.commit()
     finally:
@@ -52,7 +76,7 @@ def get_properties(db_path: str | Path | None = None) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_file)
     try:
         rows = conn.execute(
-            "SELECT id, property_name, owner_name, deed_data, deed_fingerprint FROM properties ORDER BY property_name"
+            "SELECT id, property_name, owner_name, deed_data, deed_fingerprint, utilities_active FROM properties ORDER BY property_name"
         ).fetchall()
     finally:
         conn.close()
@@ -63,6 +87,7 @@ def get_properties(db_path: str | Path | None = None) -> list[dict[str, Any]]:
             "owner_name": row[2],
             "deed_data": row[3],
             "deed_fingerprint": row[4],
+            "utilities_active": bool(row[5]),
         }
         for row in rows
     ]
@@ -101,6 +126,7 @@ def build_registry_payload(properties: list[dict[str, Any]], display_name: str) 
                 "ownerName": item.get("owner_name", "Unknown"),
                 "deedFingerprint": item.get("deed_fingerprint", "N/A"),
                 "deedDetails": item.get("deed_data", ""),
+                "utilitiesActive": bool(item.get("utilities_active", True)),
             }
             for item in properties
         ],
@@ -108,7 +134,7 @@ def build_registry_payload(properties: list[dict[str, Any]], display_name: str) 
 
 
 def build_ledger_csv(properties: list[dict[str, Any]], display_name: str) -> str:
-    header = "prepared_by,property_name,owner_name,deed_fingerprint,deed_details"
+    header = "prepared_by,property_name,owner_name,deed_fingerprint,deed_details,utilities_active"
     rows = [header]
     for item in properties:
         rows.append(
@@ -119,6 +145,7 @@ def build_ledger_csv(properties: list[dict[str, Any]], display_name: str) -> str
                     str(item.get("owner_name", "Unknown")),
                     str(item.get("deed_fingerprint", "N/A")),
                     str(item.get("deed_data", "")),
+                    str(int(bool(item.get("utilities_active", True)))),
                 ]
             )
         )
@@ -133,6 +160,7 @@ def build_business_delivery_ledger(properties: list[dict[str, Any]], display_nam
             "propertyName": item.get("property_name", "Unnamed"),
             "ownerName": item.get("owner_name", "Unknown"),
             "fingerprint": item.get("deed_fingerprint", "N/A"),
+            "utilitiesActive": bool(item.get("utilities_active", True)),
             "status": "Delivered to city ledger",
         }
         for item in properties
@@ -158,6 +186,16 @@ def build_walmart_delivery_record() -> dict[str, Any]:
         "address": "11051B County Road C, Bryan, Ohio",
         "status": "Ordered and coming",
         "deliveryNote": "Walmart order for city ledger / business delivery record",
+    }
+
+
+def build_delivery_records_payload() -> dict[str, Any]:
+    return {
+        "records": [
+            build_faire_delivery_record(),
+            build_walmart_delivery_record(),
+            build_temu_delivery_record(),
+        ]
     }
 
 
@@ -222,62 +260,73 @@ def build_pdf_bytes(properties: list[dict[str, Any]], display_name: str) -> byte
     return "\n".join(pdf_lines).encode("latin-1", errors="ignore")
 
 
-st.set_page_config(page_title="Estate Command Center", page_icon="🏠")
-st.title("🏠 Estate Command Center")
-st.caption("Manage deed data for properties with a fingerprint.")
+def render_streamlit_app() -> None:
+    st.set_page_config(page_title="Estate Command Center", page_icon="🏠")
+    st.title("🏠 Estate Command Center")
+    st.caption("Manage deed data for properties with a fingerprint.")
 
-ensure_database_schema()
+    ensure_database_schema()
 
-with st.sidebar:
-    st.header("Add deed")
-    property_name = st.text_input("Property name")
-    owner_name = st.text_input("Owner name")
-    deed_data = st.text_area("Deed details")
-    fingerprint = st.text_input("Fingerprint (optional)")
-    display_name = st.text_input("Name to show on the packet")
-    if st.button("Save property"):
-        if not property_name:
-            st.warning("Please enter a property name.")
-        else:
-            add_property(DB_PATH, property_name, owner_name, deed_data, fingerprint or None)
-            st.success("Property saved.")
+    with st.sidebar:
+        st.header("Add deed")
+        property_name = st.text_input("Property name")
+        owner_name = st.text_input("Owner name")
+        deed_data = st.text_area("Deed details")
+        fingerprint = st.text_input("Fingerprint (optional)")
+        display_name = st.text_input("Name to show on the packet")
+        if st.button("Save property"):
+            if not property_name:
+                st.warning("Please enter a property name.")
+            else:
+                add_property(DB_PATH, property_name, owner_name, deed_data, fingerprint or None)
+                st.success("Property saved.")
 
-st.subheader("Properties with deed fingerprints")
-properties = get_properties(DB_PATH)
-filtered = [item for item in properties if item.get("deed_fingerprint")]
+    st.subheader("Properties with deed fingerprints")
+    properties = get_properties(DB_PATH)
+    filtered = [item for item in properties if item.get("deed_fingerprint")]
 
-if not filtered:
-    st.info("No deed fingerprints have been recorded yet.")
-else:
-    st.dataframe(filtered, use_container_width=True)
-    st.download_button(
-        label="Download deed packet PDF",
-        data=build_pdf_bytes(filtered, display_name),
-        file_name="deed_packet.pdf",
-        mime="application/pdf",
-    )
+    if not filtered:
+        st.info("No deed fingerprints have been recorded yet.")
+    else:
+        st.dataframe(filtered, use_container_width=True)
+        st.download_button(
+            label="Download deed packet PDF",
+            data=build_pdf_bytes(filtered, display_name),
+            file_name="deed_packet.pdf",
+            mime="application/pdf",
+        )
 
-    share_text = build_share_text(filtered, display_name)
-    st.text_area("Shareable notice", share_text, height=220)
-    st.download_button(
-        label="Download registry payload JSON",
-        data=json.dumps(build_registry_payload(filtered, display_name), indent=2),
-        file_name="registry_payload.json",
-        mime="application/json",
-    )
-    st.download_button(
-        label="Download municipal ledger CSV",
-        data=build_ledger_csv(filtered, display_name),
-        file_name="municipal_ledger.csv",
-        mime="text/csv",
-    )
-    st.download_button(
-        label="Download business delivery ledger JSON",
-        data=json.dumps(build_business_delivery_ledger(filtered, display_name), indent=2),
-        file_name="business_delivery_ledger.json",
-        mime="application/json",
-    )
-    st.link_button(
-        "Send notice by email",
-        f"mailto:municipal@city.gov?subject=Digital%20Receipt%20Deed%20Notice&body={share_text}",
-    )
+        share_text = build_share_text(filtered, display_name)
+        st.text_area("Shareable notice", share_text, height=220)
+        st.download_button(
+            label="Download registry payload JSON",
+            data=json.dumps(build_registry_payload(filtered, display_name), indent=2),
+            file_name="registry_payload.json",
+            mime="application/json",
+        )
+        st.download_button(
+            label="Download municipal ledger CSV",
+            data=build_ledger_csv(filtered, display_name),
+            file_name="municipal_ledger.csv",
+            mime="text/csv",
+        )
+        st.download_button(
+            label="Download business delivery ledger JSON",
+            data=json.dumps(build_business_delivery_ledger(filtered, display_name), indent=2),
+            file_name="business_delivery_ledger.json",
+            mime="application/json",
+        )
+        st.download_button(
+            label="Download app delivery records JSON",
+            data=json.dumps(build_delivery_records_payload(), indent=2),
+            file_name="delivery_records.json",
+            mime="application/json",
+        )
+        st.link_button(
+            "Send notice by email",
+            f"mailto:municipal@city.gov?subject=Digital%20Receipt%20Deed%20Notice&body={share_text}",
+        )
+
+
+if __name__ == "__main__":
+    render_streamlit_app()

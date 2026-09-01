@@ -8,5 +8,8 @@ dependencies = [
     "streamlit>=1.59.2",
 ]
 
+[project.scripts]
+blank-app-backend = "backend:main"
+
 [tool.uv]
 package = false

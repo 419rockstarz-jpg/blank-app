@@ -40,6 +40,21 @@ class EstateDatabaseTests(unittest.TestCase):
         self.assertEqual(rows[1]["deed_fingerprint"], "abc123")
         conn.close()
 
+    def test_delivery_records_include_temu_and_other_apps(self):
+        temu_record = streamlit_app.build_temu_delivery_record()
+        self.assertEqual(temu_record["source"], "Temu")
+        self.assertIn("Temu", temu_record["deliveryNote"])
+
+        generic_record = streamlit_app.build_delivery_record("Etsy", "Test Brand")
+        self.assertEqual(generic_record["source"], "Etsy")
+        self.assertEqual(generic_record["businessName"], "Test Brand")
+
+    def test_properties_default_to_utilities_on(self):
+        streamlit_app.add_property(self.db_path, "789 Pine", "Sam Lee", "utility deed", None)
+        rows = streamlit_app.get_properties(self.db_path)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["utilities_active"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

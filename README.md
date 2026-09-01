@@ -26,10 +26,19 @@ $ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Deploy publicly
 
-This repository is now set up to be deployed to Streamlit Community Cloud or similar platforms:
+This repository is now ready for public hosting with both the Streamlit UI and the city-ledger backend:
 
-- The app entrypoint is the existing Streamlit file.
+- The Streamlit frontend runs from streamlit_app.py.
+- The backend API runs from backend.py and serves /health and /city-ledger.
 - A requirements file is included for hosted installs.
 - A runtime file is included for Python 3.11.
 
-If you push this repository to GitHub, you can deploy it from Streamlit Community Cloud by pointing it at the repo and selecting the app file.
+For Streamlit Community Cloud:
+1. Push this repository to GitHub.
+2. Open Streamlit Community Cloud and create a new app.
+3. Point it at this repo and select streamlit_app.py as the app file.
+
+For a backend-style deployment (Render, Railway, Fly.io, or similar):
+1. Use backend.py as the start command.
+2. Set the PORT environment variable.
+3. The service will expose /health and /city-ledger.
